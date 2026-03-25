@@ -1,0 +1,10 @@
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY api/go.mod api/go.sum ./
+RUN go mod download
+COPY api/ .
+RUN CGO_ENABLED=0 go build -o /greparxiv-api .
+
+FROM alpine:3.20
+COPY --from=builder /greparxiv-api /usr/local/bin/greparxiv-api
+ENTRYPOINT ["greparxiv-api"]

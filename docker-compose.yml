@@ -1,0 +1,40 @@
+services:
+  # Run once to extract papers: docker compose --profile setup run pipeline
+  pipeline:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pipeline
+    volumes:
+      - ./data/src:/data/src:ro
+      - extracted:/data/extracted
+    command: ["pipeline/extract.py", "--workers", "4"]
+    profiles: ["setup"]
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment:
+      ZOEKT_INDEX_DIR: /data/index
+      METADATA_DIR: /data/extracted
+      PORT: "8080"
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
+    volumes:
+      - ./data/zoekt-index:/data/index:ro
+      - ./data/extracted:/data/extracted:ro
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  extracted:
