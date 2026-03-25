@@ -27,7 +27,6 @@ from tex_stripper import strip_latex
 
 # Directories
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SRC_DIR = PROJECT_ROOT / "data" / "src" / "2602"
 EXTRACTED_DIR = PROJECT_ROOT / "data" / "extracted"
 
 
@@ -157,13 +156,13 @@ def _find_main_tex(directory: str) -> str | None:
     return None
 
 
-def extract_all(workers: int = 4, resume: bool = False):
+def extract_all(src_dir: Path, workers: int = 4, resume: bool = False):
     """Extract all papers from source archives."""
     EXTRACTED_DIR.mkdir(parents=True, exist_ok=True)
 
     # Collect all .gz files
     gz_files = sorted([
-        str(SRC_DIR / f) for f in os.listdir(SRC_DIR)
+        str(src_dir / f) for f in os.listdir(src_dir)
         if f.endswith('.gz')
     ])
 
@@ -224,7 +223,7 @@ def fetch_metadata():
     # Collect paper IDs
     paper_ids = sorted([
         d for d in os.listdir(EXTRACTED_DIR)
-        if os.path.isdir(EXTRACTED_DIR / d) and d.startswith('2602.')
+        if os.path.isdir(EXTRACTED_DIR / d) and '.' in d
     ])
 
     # Filter to papers that don't already have metadata
@@ -253,59 +252,70 @@ def fetch_metadata():
         print(f"  Fetching batch {batch_start // batch_size + 1} "
               f"({len(batch)} papers)...")
 
-        try:
-            req = urllib.request.Request(url, headers={
-                'User-Agent': 'greparxiv/1.0 (https://github.com/greparxiv)'
-            })
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                xml_data = resp.read().decode('utf-8')
+        success = False
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(url, headers={
+                    'User-Agent': 'greparxiv/1.0 (https://github.com/greparxiv)'
+                })
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    xml_data = resp.read().decode('utf-8')
 
-            # Parse Atom XML
-            ns = {
-                'atom': 'http://www.w3.org/2005/Atom',
-                'arxiv': 'http://arxiv.org/schemas/atom',
-            }
-            root = ET.fromstring(xml_data)
-
-            for entry in root.findall('atom:entry', ns):
-                paper_id = _extract_arxiv_id(entry, ns)
-                if not paper_id:
-                    continue
-
-                metadata = {
-                    "paper_id": paper_id,
-                    "title": _get_text(entry, 'atom:title', ns).replace('\n', ' ').strip(),
-                    "authors": [
-                        a.find('atom:name', ns).text
-                        for a in entry.findall('atom:author', ns)
-                        if a.find('atom:name', ns) is not None
-                    ],
-                    "abstract": _get_text(entry, 'atom:summary', ns).strip(),
-                    "categories": [
-                        c.get('term') for c in entry.findall('atom:category', ns)
-                    ],
-                    "primary_category": entry.find('arxiv:primary_category', ns).get('term')
-                    if entry.find('arxiv:primary_category', ns) is not None else "",
-                    "published": _get_text(entry, 'atom:published', ns),
-                    "updated": _get_text(entry, 'atom:updated', ns),
-                    "arxiv_url": f"https://arxiv.org/abs/{paper_id}",
-                    "pdf_url": f"https://arxiv.org/pdf/{paper_id}",
+                # Parse Atom XML
+                ns = {
+                    'atom': 'http://www.w3.org/2005/Atom',
+                    'arxiv': 'http://arxiv.org/schemas/atom',
                 }
+                root = ET.fromstring(xml_data)
 
-                out_path = EXTRACTED_DIR / paper_id / "metadata.json"
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(out_path, 'w', encoding='utf-8') as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+                for entry in root.findall('atom:entry', ns):
+                    paper_id = _extract_arxiv_id(entry, ns)
+                    if not paper_id:
+                        continue
 
-                fetched += 1
+                    metadata = {
+                        "paper_id": paper_id,
+                        "title": _get_text(entry, 'atom:title', ns).replace('\n', ' ').strip(),
+                        "authors": [
+                            a.find('atom:name', ns).text
+                            for a in entry.findall('atom:author', ns)
+                            if a.find('atom:name', ns) is not None
+                        ],
+                        "abstract": _get_text(entry, 'atom:summary', ns).strip(),
+                        "categories": [
+                            c.get('term') for c in entry.findall('atom:category', ns)
+                        ],
+                        "primary_category": entry.find('arxiv:primary_category', ns).get('term')
+                        if entry.find('arxiv:primary_category', ns) is not None else "",
+                        "published": _get_text(entry, 'atom:published', ns),
+                        "updated": _get_text(entry, 'atom:updated', ns),
+                        "arxiv_url": f"https://arxiv.org/abs/{paper_id}",
+                        "pdf_url": f"https://arxiv.org/pdf/{paper_id}",
+                    }
 
-        except Exception as e:
-            print(f"  ERROR fetching batch: {e}", file=sys.stderr)
+                    out_path = EXTRACTED_DIR / paper_id / "metadata.json"
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(out_path, 'w', encoding='utf-8') as f:
+                        json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+                    fetched += 1
+
+                success = True
+                break
+
+            except Exception as e:
+                wait = 5 * (attempt + 1)
+                print(f"  ERROR (attempt {attempt+1}/3): {e}", file=sys.stderr)
+                if attempt < 2:
+                    print(f"  Retrying in {wait}s...", file=sys.stderr)
+                    time.sleep(wait)
+
+        if not success:
             failed += len(batch)
 
-        # Rate limit: 3 seconds between requests (arXiv policy)
+        # Rate limit: 5 seconds between requests (arXiv policy)
         if batch_start + batch_size < len(to_fetch):
-            time.sleep(3)
+            time.sleep(5)
 
     print(f"\nMetadata fetch complete: {fetched} fetched, {failed} failed")
 
@@ -329,6 +339,9 @@ def _get_text(element, tag: str, ns: dict) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Extract text from arXiv LaTeX sources")
+    parser.add_argument('--src-dir', type=Path,
+                        default=PROJECT_ROOT / "data" / "src" / "2602",
+                        help='Directory containing .gz paper archives')
     parser.add_argument('--workers', type=int, default=os.cpu_count() or 4,
                         help='Number of parallel workers')
     parser.add_argument('--resume', action='store_true',
@@ -340,7 +353,7 @@ def main():
     if args.fetch_metadata:
         fetch_metadata()
     else:
-        extract_all(workers=args.workers, resume=args.resume)
+        extract_all(src_dir=args.src_dir, workers=args.workers, resume=args.resume)
 
 
 if __name__ == '__main__':

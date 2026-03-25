@@ -38,7 +38,7 @@ func NewStore(dir string) (*Store, error) {
 
 	loaded := 0
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "2602.") {
+		if !entry.IsDir() || !strings.Contains(entry.Name(), ".") {
 			continue
 		}
 

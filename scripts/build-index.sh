@@ -10,7 +10,7 @@ echo "Preparing flat file structure for Zoekt..."
 mkdir -p "$INDEX_INPUT"
 
 count=0
-for paper_dir in "$EXTRACTED_DIR"/2602.*/; do
+for paper_dir in "$EXTRACTED_DIR"/*/; do
     paper_id=$(basename "$paper_dir")
     txt_file="$paper_dir/paper.txt"
     if [ -f "$txt_file" ] && [ -s "$txt_file" ]; then

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { SearchBar } from './components/SearchBar';
 import { ResultsList } from './components/ResultsList';
 import { ThemeToggle } from './components/ThemeToggle';
@@ -16,6 +16,17 @@ function App() {
   });
 
   const { results, loading, error, searchNow } = useSearch(query, regex);
+  const [paperCount, setPaperCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch('/healthz').then(r => r.json()).then(d => setPaperCount(d.papers_indexed)).catch(() => {});
+  }, []);
+
+  const paperLabel = useMemo(() => {
+    const count = results?.stats.files_searched || paperCount;
+    if (!count) return 'arXiv papers';
+    return `${count.toLocaleString()} arXiv papers`;
+  }, [results, paperCount]);
 
   // Sync URL
   useEffect(() => {
@@ -66,7 +77,7 @@ function App() {
 
         {!query && !results && (
           <div className="hero">
-            <p className="hero-text">Search across 2,400+ arXiv papers from Feb 2026</p>
+            <p className="hero-text">Search across {paperLabel}</p>
             <div className="hero-examples">
               <span>Try: </span>
               {['transformer', 'attention mechanism', 'O(n log n)', '\\nabla'].map((ex) => (
@@ -84,7 +95,7 @@ function App() {
       </main>
 
       <footer className="footer">
-        Searching {results?.stats.files_searched || '2,410'} papers from arXiv (Feb 2026)
+        Searching {paperLabel}
       </footer>
     </div>
   );
