@@ -87,7 +87,7 @@ while IFS= read -r line; do
     BASENAME=$(basename "$TAR")
     DEST="$SRC_DIR/$BASENAME"
 
-    # Skip if already exists and correct size
+    # Skip if already exists on disk and correct size
     if [[ -f "$DEST" ]]; then
         ACTUAL_SIZE=$(stat -c%s "$DEST" 2>/dev/null || stat -f%z "$DEST" 2>/dev/null)
         if [[ "$ACTUAL_SIZE" == "$SIZE" ]]; then
@@ -95,6 +95,12 @@ while IFS= read -r line; do
             continue
         fi
         echo "  $BASENAME: size mismatch (expected $SIZE, got $ACTUAL_SIZE), re-downloading"
+    fi
+
+    # Skip if already successfully downloaded+processed (logged with md5=ok)
+    if [[ -f "$LOG" ]] && grep -q "\"file\":\"$BASENAME\".*\"md5\":\"ok\"" "$LOG"; then
+        SKIPPED=$((SKIPPED + 1))
+        continue
     fi
 
     # Check download limit

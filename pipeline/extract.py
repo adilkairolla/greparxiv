@@ -108,9 +108,22 @@ def process_paper(gz_path: str, output_dir: str, resume: bool = False) -> dict:
 
             main_tex_path = os.path.join(tmpdir, main_tex)
             if not os.path.isfile(main_tex_path):
-                result["status"] = "missing_tex"
-                result["error"] = f"Main tex file not found: {main_tex}"
-                return result
+                # Try fixing filenames with trailing dots (e.g., "paper..tex")
+                fixed = main_tex.replace('..', '.')
+                fixed_path = os.path.join(tmpdir, fixed)
+                if os.path.isfile(fixed_path):
+                    main_tex = fixed
+                    main_tex_path = fixed_path
+                else:
+                    # Last resort: fall back to searching for \begin{document}
+                    fallback = _find_main_tex(tmpdir)
+                    if fallback:
+                        main_tex = fallback
+                        main_tex_path = os.path.join(tmpdir, fallback)
+                    else:
+                        result["status"] = "missing_tex"
+                        result["error"] = f"Main tex file not found: {main_tex}"
+                        return result
 
             # Read and strip LaTeX
             with open(main_tex_path, 'r', encoding='utf-8', errors='replace') as f:
